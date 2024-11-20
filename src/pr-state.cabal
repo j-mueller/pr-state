@@ -29,7 +29,8 @@ library
         text,
         containers,
         prettyprinter,
-        mtl
+        mtl,
+        parallel-io
     hs-source-dirs:   src
     default-language: Haskell2010
 
@@ -44,3 +45,4 @@ executable pr-state
 
     hs-source-dirs:   exe
     default-language: Haskell2010
+    ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N

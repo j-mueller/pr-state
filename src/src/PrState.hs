@@ -5,31 +5,34 @@
 {-# LANGUAGE OverloadedStrings  #-}
 module PrState (runMain) where
 
-import           Control.Monad.Except        (runExceptT)
-import           Control.Monad.IO.Class      (MonadIO (liftIO))
-import           Control.Monad.Reader        (runReaderT)
-import           Data.Foldable               (toList)
-import           Data.Map                    (Map)
-import qualified Data.Map                    as Map
-import           Data.Set                    (Set)
-import qualified Data.Set                    as Set
-import           Data.String                 (IsString (..))
-import           Data.Text                   (Text)
-import           GitHub                      (IssueNumber (..),
-                                              MergeableState (..), Owner,
-                                              PullRequest (..), Repo,
-                                              SimplePullRequest (..),
-                                              SimpleUser (..))
+import           Control.Concurrent.ParallelIO.Global (parallel)
+import           Control.Monad.Except                 (runExceptT, liftEither)
+import           Control.Monad.IO.Class               (MonadIO (liftIO))
+import           Control.Monad.Reader                 (runReaderT)
+import           Data.Foldable                        (toList)
+import           Data.Map                             (Map)
+import qualified Data.Map                             as Map
+import           Data.Set                             (Set)
+import qualified Data.Set                             as Set
+import           Data.String                          (IsString (..))
+import           Data.Text                            (Text)
+import           GitHub                               (IssueNumber (..),
+                                                       MergeableState (..),
+                                                       Owner, PullRequest (..),
+                                                       Repo,
+                                                       SimplePullRequest (..),
+                                                       SimpleUser (..))
 import qualified GitHub
-import           GitHub.Data.Name            (Name (..))
-import           Prettyprinter               (Doc, Pretty (..), colon,
-                                              defaultLayoutOptions, hang,
-                                              layoutPretty, parens, pretty,
-                                              vsep, (<+>))
-import           Prettyprinter.Render.String (renderString)
-import qualified PrState.API                 as API
-import           System.Environment          (getArgs)
-import           System.Exit                 (exitFailure)
+import           GitHub.Data.Name                     (Name (..))
+import           Prettyprinter                        (Doc, Pretty (..), colon,
+                                                       defaultLayoutOptions,
+                                                       hang, layoutPretty,
+                                                       parens, pretty, vsep,
+                                                       (<+>))
+import           Prettyprinter.Render.String          (renderString)
+import qualified PrState.API                          as API
+import           System.Environment                   (getArgs)
+import           System.Exit                          (exitFailure)
 
 {-| Status of a PR
 -}
@@ -80,8 +83,12 @@ runMain = do
   result <- runExceptT $ flip runReaderT env $ do
     prs <- API.listOpenPRs
     let isRelevant SimplePullRequest{simplePullRequestUser=SimpleUser{simpleUserLogin}} = Set.null allowedUsers || simpleUserLogin `Set.member` allowedUsers
-    traverse (mkPrReport . simplePullRequestNumber) (filter isRelevant prs)
-      >>= liftIO . putStrLn . render . foldMap repoPRReport
+    reports <- liftIO
+      $ parallel
+      $ runExceptT . flip runReaderT env . mkPrReport . simplePullRequestNumber
+      <$> filter isRelevant prs
+    traverse liftEither reports >>=
+      liftIO . putStrLn . render . foldMap repoPRReport
   case result of
     Left err -> do
       print err
